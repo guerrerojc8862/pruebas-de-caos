@@ -1,8 +1,254 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: Template para el despliegue de la instancia EC2 de Chaos Toolkit
+Description: >
+  Taller AutoEstudio
+
+Parameters:
+
+  pVPCRango:
+    Description: Rango de IP para mi VPC
+    Type: String
+    Default: 10.0.0.0/16 # Este es el rango de mi VPC
+
+  prangosubnetpublica1:
+    Description: Rango de IP para subnet publica1
+    Type: String
+    Default: 10.0.1.0/24
+
+  pAMI:
+    Description: Ami AutoEstudio Linux
+    Type: AWS::EC2::Image::Id
+    Default: ami-0e9ed840bfe8dacac
+
+  pTipoDeInstancia: 
+    Description: Tipo de instancia en la que se levanta mi AMI
+    Type: String
+    Default: t2.micro
+    AllowedValues: 
+      - t2.micro
+
 
 Resources:
-  rEC2ChaosToolkit:
-    Type: AWS::EC2::Instance
-    
 
+  rMYVPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: !Ref pVPCRango 
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default  # Instancia que comparte recursos, no es una instancia dedicada 
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [ Ref: "AWS::StackName" , "VPC" ]]
+
+  rSubnetPublica1:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: "us-east-1a"
+      CidrBlock: !Ref prangosubnetpublica1
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref rMYVPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [ Ref: "AWS::StackName" , "Subnetpublica1" ]]
+
+  rEc2chaostoolkit:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: false
+      IamInstanceProfile: !Ref rperfilRole
+      ImageId: !Ref pAMI
+      InstanceMonitoring: true
+      InstanceType: !Ref pTipoDeInstancia
+      SubnetId: !Ref rSubnetPublica1
+      SecurityGroups:
+        - !Ref rSecurityGroupEC2
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          sudo su
+          systemctl restart amazon-ssm-agent
+          fallocate -l 1024M /swapfile
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          mkdir -v ~/.venvs && python3 -m venv ~/.venvs/chaostk
+          source ~/.venvs/chaostk/bin/activate
+          pip install -U pip3
+          pip3 install -U chaostoolkit
+          pip3 install -U chaostoolkit-kubernetes
+          pip3 install -U chaostoolkit-aws
+          pip3 install -U chaostoolkit-reporting
+          pip3 install -U chaostoolkit-dynatrace
+          sudo amazon-linux-extras install docker
+          sudo amazon-linux-extras install epel
+          #cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
+          #[kubernetes]
+          #name=Kubernetes
+          #baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+          #enabled=1
+          #gpgcheck=1
+          #repo_gpgcheck=1
+          #gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+          #EOF
+          #sudo yum -y install kubectl
+          curl -o kubectl https://amazon-eks.s3.us-west-2.amazonaws.com/1.21.2/2021-07-05/bin/linux/amd64/kubectl
+          chmod +x ./kubectl
+          mkdir -p $HOME/bin && cp ./kubectl $HOME/bin/kubectl && export PATH=$PATH:$HOME/bin
+          echo 'export PATH=$PATH:$HOME/bin' >> ~/.bashrc
+          kubectl version --short --client
+          curl -fsSL https://rpm.nodesource.com/setup_16.x | bash -
+          sudo yum -y install nodejs
+          sudo yum -y install cairo-devel
+          sudo yum -y install pandoc --enablerepo=epel
+          pip3 install -U jsonschema
+          pip3 install -i https://test.pypi.org/simple/ chaosk8-stress-instances==0.2.7
+          pip3 install -U chaostoolkit-lib[jsonpath]
+          cd ~/.venvs/chaostk/bin/
+          aws s3 cp s3://${pChaosToolkitS3}/Vegeta/vegeta_12.8.4_linux_amd64.zip vegeta_12.8.4_linux_amd64.tar.gz
+          tar -v -xf vegeta_12.8.4_linux_amd64.tar.gz vegeta
+          rm -v -rf vegeta_12.8.4_linux_amd64.tar.gz
+          sudo mkdir -v /usr/bin/chaostemplates
+          sudo bash
+          echo "alias envchaos='source ~/.venvs/chaostk/bin/activate'" >>~/.bashrc
+          echo "alias chaosrun='chaos run --rollback-strategy=always'" >>~/.bashrc
+          cat ~/.bashrc
+
+  rRoleIAM:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: Rol que permite la conexion por SSM, a S3 y a cloudwatch
+      ManagedPolicyArns: 
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
+        - 'arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy'
+      RoleName: !Join ["-", [ Ref: "AWS::StackName" , "RoleEc2" ]]
+
+  rperfilRole:
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      InstanceProfileName: Perfil-Role-EC2
+      Roles: 
+        - Ref: rRoleIAM
+        
+
+  rSecurityGroupEC2:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Security Group con reglas de entrada para las instancias EC2
+      GroupName: SG EC2
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          Description: Conexion HTTP
+          FromPort: 0 #Comienzo del rango de puertos
+          ToPort: 80   # Fin del rango de puertos
+          CidrIp: 0.0.0.0/0 #El intervalo de direcciones IPV4
+      VpcId: !Ref rMYVPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [ Ref: "AWS::StackName" , "SGec2" ]]
+
+  rInternetGatway:
+    Type: AWS::EC2::InternetGateway
+    Properties: 
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [ Ref: "AWS::StackName" , "InternetGatway" ]]
+
+  rAttachmentIG:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: 
+      InternetGatewayId: !Ref rInternetGatway
+      VpcId: !Ref rMYVPC
+
+  rRouteTablePublic:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref rMYVPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [ Ref: "AWS::StackName" , "RouteTablePublic" ]]
+
+  rSubnet1AsociationRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref rRouteTablePublic
+      SubnetId: !Ref rSubnetPublica1
+
+  rRoutePublic:
+    Type: AWS::EC2::Route
+    Properties: 
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref rInternetGatway
+      RouteTableId: !Ref rRouteTablePublic
+
+
+  rBucketS3:
+    Type: AWS::S3::Bucket
+    Properties: 
+      BucketName: !Join ["-", [ Ref: "AWS::StackName" , "bucketwebmaik" ]]
+      PublicAccessBlockConfiguration: 
+          BlockPublicAcls: true
+          BlockPublicPolicy: true 
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+
+
+Outputs:
+
+  oMYVPC:
+    Description: Mi VPC
+    Value:
+      Ref: rMYVPC
+    Export:
+      Name: !Join ["-", [ Ref: "AWS::StackName" , "VPC" ]]
+
+  orSubnetPublica1:
+    Description: Mi subnet publica en zuna 1a
+    Value:
+      Ref: rSubnetPublica1
+    Export:
+      Name: !Join ["-", [ Ref: "AWS::StackName" , "Subnetpublica1" ]]
+
+  oSecurityGroupEC2:
+    Description: Mi SG EC2
+    Value:
+      Ref: rSecurityGroupEC2
+    Export:
+      Name: !Join ["-", [ Ref: "AWS::StackName" , "SGec2" ]]
+
+  oInternetGatway:
+    Description: Mi IG
+    Value:
+      Ref: rInternetGatway
+    Export:
+      Name: !Join ["-", [ Ref: "AWS::StackName" , "InternetGatway" ]]
+
+  oRouteTablePublic:
+    Description: Mi Tabla De Enrutamiento Publica
+    Value:
+      Ref: rRouteTablePublic
+    Export:
+      Name: !Join ["-", [ Ref: "AWS::StackName" , "RouteTablePublic" ]]
+
+  oRoleIAM:
+    Description: Role IAM
+    Value:
+      Ref: rRoleIAM
+    Export:
+      Name: !Join ["-", [ Ref: "AWS::StackName" , "RoleEc2" ]]
+
+  oBucketS3:
+    Description: Nuestro Bucket S3
+    Value:
+      Ref: rBucketS3
+    Export:
+      Name: !Join ["-", [ Ref: "AWS::StackName" , "bucketwebmaik" ]]
