@@ -17,7 +17,7 @@ Parameters:
   pAMI:
     Description: Ami AutoEstudio Linux
     Type: AWS::EC2::Image::Id
-    Default: ami-0e9ed840bfe8dacac
+    Default: ami-0cff7528ff583bf9a 
 
   pTipoDeInstancia: 
     Description: Tipo de instancia en la que se levanta mi AMI
