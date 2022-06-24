@@ -57,7 +57,7 @@ Resources:
       DisableApiTermination: false
       IamInstanceProfile: !Ref rperfilRole
       ImageId: !Ref pAMI
-      InstanceMonitoring: true
+      Monitoring: true
       InstanceType: !Ref pTipoDeInstancia
       SubnetId: !Ref rSubnetPublica1
       SecurityGroups:
