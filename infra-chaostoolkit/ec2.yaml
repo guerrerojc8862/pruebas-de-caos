@@ -104,9 +104,6 @@ Resources:
           pip3 install -i https://test.pypi.org/simple/ chaosk8-stress-instances==0.2.7
           pip3 install -U chaostoolkit-lib[jsonpath]
           cd ~/.venvs/chaostk/bin/
-          aws s3 cp s3://${pChaosToolkitS3}/Vegeta/vegeta_12.8.4_linux_amd64.zip vegeta_12.8.4_linux_amd64.tar.gz
-          tar -v -xf vegeta_12.8.4_linux_amd64.tar.gz vegeta
-          rm -v -rf vegeta_12.8.4_linux_amd64.tar.gz
           sudo mkdir -v /usr/bin/chaostemplates
           sudo bash
           echo "alias envchaos='source ~/.venvs/chaostk/bin/activate'" >>~/.bashrc
