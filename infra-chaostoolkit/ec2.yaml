@@ -60,8 +60,8 @@ Resources:
       Monitoring: true
       InstanceType: !Ref pTipoDeInstancia
       SubnetId: !Ref rSubnetPublica1
-      SecurityGroups:
-        - !Ref rSecurityGroupEC2
+      SecurityGroupIds:
+        - !GetAtt rSecurityGroupEC2.GroupId
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
