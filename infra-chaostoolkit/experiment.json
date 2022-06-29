@@ -37,6 +37,6 @@
         }
     ],
     "configuration": {
-        "aws_region": "<REGION>"
+        "aws_region": "us-east-1"
     }
 }
