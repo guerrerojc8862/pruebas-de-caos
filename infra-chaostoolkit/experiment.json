@@ -1,0 +1,42 @@
+{
+    "title": "Deteniendo una instancia de un ALB",
+    "description": "N/A",
+    "tags": [],
+    "steady-state-hypothesis": {
+        "title": "Pruebas-en-las-instancias",
+        "probes": [
+            {
+                "name": "instance-state",
+                "type": "probe",
+                "tolerance": true,
+                "provider": {
+                    "type": "python",
+                    "module": "chaosaws.ec2.probes",
+                    "func": "instance_state",
+                    "arguments": {
+                        "state": "running",
+                        "instance_ids": ["i-00313bfc5cb0110f4"]
+                    }
+                }
+            }
+        ]
+    },
+    "method": [
+        {
+            "name": "stop-instance",
+            "type": "action",
+            "provider": {
+                "type": "python",
+                "module": "chaosaws.ec2.actions",
+                "func": "stop_instance",
+                "arguments": {
+                    "instance_id": "i-00313bfc5cb0110f4"
+
+                }
+            }
+        }
+    ],
+    "configuration": {
+        "aws_region": "<REGION>"
+    }
+}
