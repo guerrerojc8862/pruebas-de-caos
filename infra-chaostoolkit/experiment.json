@@ -15,7 +15,7 @@
                     "func": "instance_state",
                     "arguments": {
                         "state": "running",
-                        "instance_ids": ["i-00313bfc5cb0110f4"]
+                        "instance_ids": ["i-0dec90fd1b83a2a39"]
                     }
                 }
             }
@@ -30,11 +30,29 @@
                 "module": "chaosaws.ec2.actions",
                 "func": "stop_instance",
                 "arguments": {
-                    "instance_id": "i-00313bfc5cb0110f4"
+                    "instance_id": "i-0dec90fd1b83a2a39"
 
                 }
-            }
+            },
+	        "pauses":{
+		        "after": 180
+	        }
         }
+    ],
+    "rollbacks": [
+        {
+            "name": "start-instances",
+            "type": "action",
+            "provider": {
+              "type": "python",
+              "module": "chaosaws.ec2.actions",
+              "func": "start_instances",
+              "arguments":{
+                "instance_ids": ["i-0dec90fd1b83a2a39"]
+              }
+            }
+          }
+          
     ],
     "configuration": {
         "aws_region": "us-east-1"
