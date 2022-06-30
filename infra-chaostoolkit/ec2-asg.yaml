@@ -1,0 +1,288 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >
+  Auto Scaling Group
+Parameters:
+
+  pVPCRango:
+    Description: Rango de IP para mi VPC
+    Type: String
+    Default: 11.0.0.0/16 # Este es el rango de mi VPC
+
+  prangosubnetpublica1:
+    Description: Rango de IP para subnet publica1
+    Type: String
+    Default: 11.0.1.0/24
+
+  prangosubnetpublica2:
+    Description: Rango de IP para subnet publica2
+    Type: String
+    Default: 11.0.2.0/24
+
+  pAMI:
+    Description: Ami AutoEstudio Linux
+    Type: AWS::EC2::Image::Id
+    Default: ami-0cff7528ff583bf9a
+
+  pTipoDeInstancia: 
+    Description: Tipo de instancia en la que se levanta mi AMI
+    Type: String
+    Default: t2.micro
+    AllowedValues: 
+      - t2.micro
+
+
+Resources:
+
+  rMYVPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: !Ref pVPCRango 
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default  # Instancia que comparte recursos, no es una instancia dedicada 
+
+
+  rSubnetPublica1:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: "us-east-1a"
+      CidrBlock: !Ref prangosubnetpublica1
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref rMYVPC
+
+
+  rSubnetPublica2:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: "us-east-1b"
+      CidrBlock: !Ref prangosubnetpublica2
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref rMYVPC
+
+
+  rSecurityGroupEC2:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Security Group con reglas de entrada para las instancias EC2
+      GroupName: SG EC2
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          Description: Conexion HTTP
+          FromPort: 80 #Comienzo del rango de puertos
+          ToPort: 80   # Fin del rango de puertos
+          CidrIp: 0.0.0.0/0 #El intervalo de direcciones IPV4
+      VpcId: !Ref rMYVPC
+
+
+  rInternetGatway:
+    Type: AWS::EC2::InternetGateway
+    Properties: 
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [ Ref: "AWS::StackName" , "InternetGatway2" ]]
+
+
+  rAttachmentIG:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: 
+      InternetGatewayId: !Ref rInternetGatway
+      VpcId: !Ref rMYVPC
+
+  rRouteTablePublic:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref rMYVPC
+
+
+  rSubnet1AsociationRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref rRouteTablePublic
+      SubnetId: !Ref rSubnetPublica1
+
+  rSubnet2AsociationRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref rRouteTablePublic
+      SubnetId: !Ref rSubnetPublica2
+
+  rRoutePublic:
+    Type: AWS::EC2::Route
+    Properties: 
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref rInternetGatway
+      RouteTableId: !Ref rRouteTablePublic
+
+  rRoleIAM:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: Rol que permite la conexion po r SSM, a S3 y a cloudwatch
+      ManagedPolicyArns: 
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
+        - 'arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy'
+      RoleName: !Join ["-", [ Ref: "AWS::StackName" , "RoleEc2" ]]
+
+  rperfilRole:
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      InstanceProfileName: Perfil-Role-EC2-2
+      Roles: 
+        - Ref: rRoleIAM
+
+  rBucketS3:
+    Type: AWS::S3::Bucket
+    Properties: 
+      BucketName: !Join ["-", [ Ref: "AWS::StackName" , "bucketweb" ]]
+      PublicAccessBlockConfiguration: 
+          BlockPublicAcls: true
+          BlockPublicPolicy: true 
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+
+# Recursos para nuestro balanceador de instancias
+  rSGLoadBalancer:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Security Group con reglas de entrada para el Load Balancer
+      GroupName: SG Load Balancer
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          Description: Conexion HTTP
+          FromPort: 80 #Comienzo del rango de puertos
+          ToPort: 80   # Fin del rango de puertos
+          CidrIp: 0.0.0.0/0 #El intervalo de direcciones IPV4
+      VpcId: !Ref rMYVPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [ Ref: "AWS::StackName" , "SGLoadBalancer" ]]
+
+  rLoadBalancerEc2:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties: 
+      IpAddressType: ipv4
+      Name: LoadBalancerEc2
+      Scheme: internet-facing
+      SecurityGroups: 
+        - !Ref rSGLoadBalancer
+      Subnets: 
+        - !Ref rSubnetPublica1
+        - !Ref rSubnetPublica2
+      Type: application
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [ Ref: "AWS::StackName" , "LoadBalancerEc2" ]]
+
+  rTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties: 
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPort: 80
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 5
+      UnhealthyThresholdCount: 5
+      Name: TargetGroup
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      VpcId: !Ref rMYVPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [ Ref: "AWS::StackName" , "TargetGroup" ]]
+
+  rListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties: 
+      DefaultActions: 
+        - TargetGroupArn: !Ref rTargetGroup
+          Type: forward 
+      LoadBalancerArn: !Ref rLoadBalancerEc2
+      Port: 80
+      Protocol: HTTP
+
+  rLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    DependsOn: rAttachmentIG
+    Properties: 
+      AssociatePublicIpAddress: true 
+      IamInstanceProfile: !Ref rperfilRole
+      ImageId: !Ref pAMI
+      InstanceMonitoring: true
+      InstanceType: !Ref pTipoDeInstancia
+      LaunchConfigurationName: !Join ["-", [ Ref: "AWS::StackName" , "LaunchConfigurationmaik1" ]]
+      SecurityGroups:
+        - !Ref rSecurityGroupEC2
+      UserData: !Base64 |
+        #!/bin/bash
+          sudo su
+          systemctl restart amazon-ssm-agent
+          yum -y update 
+          yum -y install httpd
+          systemctl start httpd.service
+          systemctl enable httpd.service
+          EC2_AVAIL_ZONE=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+          echo "<h1>Hello World</h1><p>Hello World from instance $(hostname -f) in AZ $EC2_AVAIL_ZONE</p>" > /var/www/html/index.html
+          chmod 755 /var/www/html/index.html
+        
+        
+  rAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties: 
+      AutoScalingGroupName: aw12345-autoestudio-dev-ASG
+      Cooldown: 150
+      DesiredCapacity: 2
+      MinSize: 2
+      MaxSize: 3
+      HealthCheckGracePeriod: 300
+      HealthCheckType: EC2 
+      LaunchConfigurationName: !Ref rLaunchConfiguration
+      MetricsCollection:
+        - Granularity: 1Minute
+          Metrics: 
+            - "GroupMinSize"
+            - "GroupMaxSize"
+            - "GroupDesiredCapacity"
+            - "GroupInServiceInstances"
+            - "GroupTerminatingInstances"
+      TargetGroupARNs: 
+        - !Ref rTargetGroup
+      VPCZoneIdentifier: 
+        - !Ref rSubnetPublica1
+        - !Ref rSubnetPublica2
+
+  rScalingPolicyDown:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties: 
+      AdjustmentType: ChangeInCapacity 
+      AutoScalingGroupName: !Ref rAutoScalingGroup
+      PolicyType: SimpleScaling 
+      ScalingAdjustment: -1
+
+  rCpuAlarmDown:
+    Type: AWS::CloudWatch::Alarm
+    Properties: 
+      AlarmActions: 
+        - !Ref rScalingPolicyDown
+      AlarmDescription: Esta alarma ejecuta una politica de disminución de instancias cuando la CPU es menor al 20%
+      AlarmName: CPU menor al 20%
+      ComparisonOperator: LessThanThreshold #Menor que el umbral
+      Dimensions: 
+        - Name: AutoScalingGroupName
+          Value: !Ref rAutoScalingGroup
+      MetricName: CPUUtilization
+      EvaluationPeriods: 2
+      Namespace: AWS/EC2
+      Period: 60
+      Statistic: Average 
+      Threshold: 20
+      Unit: Percent 

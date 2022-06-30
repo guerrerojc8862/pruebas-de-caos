@@ -1,0 +1,48 @@
+{
+    "title": "Deteniendo una instancia de asg",
+    "description": "N/A",
+    "tags": [],
+    "steady-state-hypothesis": {
+        "title": "Pruebas-en-las-instancias",
+        "probes": [
+            {
+                "name": "count-instances",
+                "type": "probe",
+                "tolerance": [2,3],
+                "provider": {
+                    "type": "python",
+                    "module": "chaosaws.ec2.probes",
+                    "func": "count_instances",
+                    "arguments": {
+                        "filters": [
+                            {
+                                "Name": "instance-state-name",
+                                "Values": ["running"]
+                            }
+                        ]
+                    }
+                }
+            }
+        ]     
+    },
+    "method": [
+        {   "name": "terminate-random-instances",
+            "type": "action",
+            "provider": {
+                "type": "python",
+                "module": "chaosaws.asg.actions",
+                "func": "terminate_random_instances",
+                "arguments": {
+                    "asg_names": "aw12345-autoestudio-dev-ASG",
+                    "instance_percent": "100"
+                }
+            },
+	        "pauses":{
+		        "after": 180
+	        }
+        }
+    ],
+    "configuration": {
+        "aws_region": "us-east-1"
+    }
+}
