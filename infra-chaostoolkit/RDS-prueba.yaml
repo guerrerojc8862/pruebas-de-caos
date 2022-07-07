@@ -1,0 +1,138 @@
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: >
+  RDS Prueba
+
+Parameters:
+
+  pVPCRango:
+    Description: Rango de IP para mi VPC
+    Type: String
+    Default: 11.0.0.0/16 # Este es el rango de mi VPC
+
+  prangosubnetpublica1:
+    Description: Rango de IP para subnet publica1
+    Type: String
+    Default: 11.0.1.0/24
+
+  prangosubnetpublica2:
+    Description: Rango de IP para subnet publica2
+    Type: String
+    Default: 11.0.2.0/24
+
+  pPuertoRDS:
+    Description: Puerto de la rds
+    Type: String
+    Default: 3306
+
+  pGroupName:
+      Description: GroupName
+      Type: AWS::EC2::SecurityGroup::Id
+      Default: sg-0612962370fe6160e
+
+Resources:
+
+  rMYVPC:
+      Type: AWS::EC2::VPC
+      Properties: 
+        CidrBlock: !Ref pVPCRango 
+        EnableDnsHostnames: true
+        EnableDnsSupport: true
+        InstanceTenancy: default  # Instancia que comparte recursos, no es una instancia dedicada 
+        Tags:
+          - Key: Name
+            Value: !Join ["-", [ Ref: "AWS::StackName" , "VPC" ]]
+
+  rSubnetPublica1:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: "us-east-1a"
+      CidrBlock: !Ref prangosubnetpublica1
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref rMYVPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [ Ref: "AWS::StackName" , "Subnetpublica1" ]]
+
+  rSubnetPublica2:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: "us-east-1b"
+      CidrBlock: !Ref prangosubnetpublica2
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref rMYVPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [ Ref: "AWS::StackName" , "Subnetpublica2" ]]       
+
+  rSecurityGroupEC2:
+      Type: AWS::EC2::SecurityGroup
+      Properties: 
+        GroupDescription: Security Group con reglas de entrada para las instancias EC2
+        GroupName: SG EC2
+        SecurityGroupIngress: 
+          - IpProtocol: tcp
+            Description: Conexion HTTP
+            FromPort: 0 #Comienzo del rango de puertos
+            ToPort: 80   # Fin del rango de puertos
+            CidrIp: 0.0.0.0/0 #El intervalo de direcciones IPV4
+        VpcId: !Ref rMYVPC
+        Tags:
+          - Key: Name
+            Value: !Join ["-", [ Ref: "AWS::StackName" , "SGec2" ]]
+
+  rSGRDS:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupName: !Join ["-", [ Ref: "AWS::StackName" , "SGRDS" ]]
+      GroupDescription: Allow access RDS
+      VpcId:
+        Ref: rMYVPC    # Pendiente
+      SecurityGroupIngress: 
+      - IpProtocol: tcp     
+        FromPort: !Ref pPuertoRDS
+        ToPort: !Ref pPuertoRDS         
+        CidrIp: 10.0.0.0/16
+        Description: Acceso desde la red asignada
+      - IpProtocol: tcp     
+        FromPort: !Ref pPuertoRDS
+        ToPort: !Ref pPuertoRDS
+        SourceSecurityGroupId: !Ref rSecurityGroupEC2 # Pendiente
+        Description: Acceso de la EC2 a la RDS
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [ Ref: "AWS::StackName" , "SGRDS" ]]
+
+
+#==================================================== Subnet Group RDS=====================================================================
+#=========================================================================================================================================
+  rRDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Grupo Subnet RDS
+      DBSubnetGroupName: mysubnetgroup1
+      SubnetIds:
+        - Ref: rSubnetPublica1
+        - Ref: rSubnetPublica2
+
+  rInstance:
+    Type: AWS::RDS::DBInstance
+    DependsOn: rSGRDS
+    Properties:
+      PubliclyAccessible: false
+      DBName: PilotoTallerDB
+      AllocatedStorage: '50'
+      DBInstanceClass: db.t2.micro
+      Engine: MySQL
+      EngineVersion: '8.0.16'
+      MasterUsername: admin
+      MasterUserPassword: admindbtaller
+      VPCSecurityGroups:
+      - !GetAtt rSGRDS.GroupId
+      BackupRetentionPeriod: '1'
+      Port: !Ref pPuertoRDS
+      DBSubnetGroupName:
+        Ref: rRDSSubnetGroup
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [ Ref: "AWS::StackName" , "RDSInstance" ]]
