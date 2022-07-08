@@ -128,6 +128,7 @@ Resources:
         - 'arn:aws:iam::aws:policy/AmazonEC2FullAccess'
         - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
         - 'arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy'
+        - 'arn:aws:iam::aws:policy/AmazonRDSFullAccess'
       RoleName: !Join ["-", [ Ref: "AWS::StackName" , "RoleEc2" ]]
 
   rperfilRole:
