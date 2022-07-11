@@ -127,6 +127,7 @@ Resources:
       EngineVersion: '8.0.16'
       MasterUsername: admin
       MasterUserPassword: admindbtaller
+      MultiAZ: true
       VPCSecurityGroups:
       - !GetAtt rSGRDS.GroupId
       BackupRetentionPeriod: '1'
